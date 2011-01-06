@@ -1,0 +1,9 @@
+AC_INIT()
+AM_INIT_AUTOMAKE(linestamp,0.0.1)
+
+AC_PROG_CC
+AC_LANG_C
+
+AC_HEADER_STDC
+
+AC_OUTPUT(Makefile src/Makefile)
