@@ -29,6 +29,8 @@
 #define _GNU_SOURCE
 #include <getopt.h>
 
+#include "arguments.h"
+
 struct arguments
 {
   char format[256];
@@ -36,29 +38,21 @@ struct arguments
 
 static
 void
-print_usage (const char *command)
+_print_usage_header (const char *command)
 {
   printf ("Usage: %s [OPTION]\n"
 	  "Reads stdin and sends it to stdout while prefixing each line with\n"
-	  "a timestamp.\n"
-	  "\n"
-	  "Output:\n"
-	  "  -f, --format=FORMAT\t\tformat of timestamp (see strftime)\n"
-	  "\n"
-	  "Miscellaneous:\n"
-	  "  -V, --version\t\t\tprint version information and exit\n"
-	  "  -h, --help\t\t\tdisplay this help and exit\n"
-	  "\n",
+	  "a timestamp.\n", 
 	  command);
 }
 
 static
 void
-print_version ()
+_print_version ()
 {
   printf ("%s %s\n"
           "\n"
-          "Copyright 2007 by Dirk Dierckx <dirk.dierckx@dhl.com>\n"
+          "Copyright 2010 by Dirk Dierckx <dirk.dierckx@gmail.com>\n"
           "This is free software; see the source for copying conditions.\n"
           "There is NO warranty; not even for MERCHANTABILITY or FITNESS\n"
           "FOR A PARTICULAR PURPOSE.\n",
@@ -66,45 +60,71 @@ print_version ()
 }
 
 static
-short
-get_arguments (struct arguments *args, int argc, char *argv[])
+bool
+_process_option (struct arguments_definition *def,
+		 int opt,
+		 const char *optarg,
+		 int argc,
+		 char *argv[])
 {
-  struct option options[] = {
-    { "help", no_argument, NULL, 'h' },
-    { "version", no_argument, NULL, 'V' },
-    { "format", required_argument, NULL, 'f' },
-    { NULL, 0, NULL, 0 }
-  };
+  struct arguments *args = def->user_data;
+  bool go_on = true;
 
-  int opt;
-  
-  memset (args, 0, sizeof (struct arguments));
-  
-  /* put default values */
-  strcpy (args->format, "%c ");
-
-  while (-1 != (opt = getopt_long (argc, argv, "hVf:", options, NULL))) {
-    switch (opt) {
-    case '?': /* invalid option */
-      return 0;
-    case 'h':
-      print_usage (argv[0]);
-      return 0;
-    case 'V':
-      print_version ();
-      return 0;
-    case 'f':
-      strncpy (args->format, optarg, sizeof (args->format));
-      args->format[sizeof (args->format) - 1] = '\0';
-      break;
-    }
+  switch (opt) {
+  case '?': /* invalid option */
+    go_on = false;
+    break;
+  case ':': /* invalid argument */
+  case 'h':
+    print_usage (def, argv[0]);
+    go_on = false;
+    break;
+  case 'V':
+    _print_version ();
+    go_on = false;
+    break;
+  case 'f':
+    strncpy (args->format, optarg, sizeof (args->format));
+    args->format[sizeof (args->format) - 1] = '\0';
+    break;
   }
 
-  return 1;
+  return go_on;
+}
+
+static
+bool
+_get_arguments (struct arguments *args, int argc, char *argv[])
+{
+  struct arguments_definition def;
+  struct arguments_option options[] = {
+    { "Output", 'f', "format", required_argument, "FORMAT",
+      "format of timestamp (see strftime)" },
+    { "Miscellaneous", 'V', "version", no_argument, NULL,
+      "print version information and exit" },
+    { "Miscellaneous", 'h', "help", no_argument, NULL,
+      "display this help and exit" },
+    { NULL, 0, NULL, 0, NULL, NULL }
+  };
+  
+  memset (&def, 0, sizeof (def));
+
+  def.print_usage_header = &_print_usage_header;
+  def.process_option = &_process_option;
+  def.process_non_options = NULL;
+  def.options = options;
+  
+  memset (args, 0, sizeof (struct arguments));
+
+  strcpy (args->format, "%c ");
+
+  def.user_data = args;
+
+  return get_arguments (&def, argc, argv);
 }
 
 static 
-short
+bool
 write_stamp (int fd, struct arguments *args)
 {
   time_t now_time;
@@ -120,10 +140,10 @@ write_stamp (int fd, struct arguments *args)
   if (write (fd, stamp, len) != len) {
     fprintf (stderr, "Could not write stamp to fd(%d) because: %s\n",
 	     fd, strerror (errno));
-    return 0;
+    return false;
   }
 
-  return 1;
+  return true;
 }
 
 int
@@ -131,18 +151,17 @@ main (int argc, char *argv[])
 {
   struct arguments args;
 
-  if (get_arguments (&args, argc, argv)) {
+  if (_get_arguments (&args, argc, argv)) {
     const size_t buffer_size = 1024 * 32;
     int ifd = STDIN_FILENO, ofd = STDOUT_FILENO;
-    short busy = 1;
+    bool busy = true, add_stamp = true;
     char *buffer;
-    short add_stamp = 1;
     
     buffer = malloc (buffer_size);
     if (NULL == buffer) {
       fprintf (stderr, "Could not allocate read buffer because: %s\n",
 	       strerror (errno));
-      busy = 0;
+      busy = false;
     }
     
     while (busy) {
@@ -152,31 +171,31 @@ main (int argc, char *argv[])
       if (-1 == read_size) {
 	fprintf (stderr, "Could not read from fd(%d) because: %s\n",
 		 ifd, strerror (errno));
-	busy = 0;
+	busy = false;
       } else if (0 == read_size) { /* EOF */
-	busy = 0;
+	busy = false;
       } else if (read_size > 0) {
 	size_t processed_size = 0;
 	size_t offset = 0;
 
 	while (busy && processed_size < read_size) {
-	  short write_block, new_add_stamp;
+	  bool write_block, new_add_stamp;
 
 	  if ('\n' == buffer[processed_size + offset]) {
-	    write_block = 1;
-	    new_add_stamp = 1;
+	    write_block = true;
+	    new_add_stamp = true;
 	  } else if (processed_size + offset + 1 == read_size) {
-	    write_block = 1;
-	    new_add_stamp = 0;
+	    write_block = true;
+	    new_add_stamp = false;
 	  } else {
-	    write_block = 0;
+	    write_block = false;
 	    ++offset;
 	  }
 
 	  if (write_block) {
 	    if (add_stamp) {
 	      if (!write_stamp (ofd, &args))
-		busy = 0; /* error occured */
+		busy = false; /* error occured */
 	    }
 	    add_stamp = new_add_stamp;
 	    
@@ -185,7 +204,7 @@ main (int argc, char *argv[])
 		  != offset + 1) {
 		fprintf (stderr, "Could not write stdin to stdout because:"
 			 " %s\n", strerror (errno));
-		busy = 0;
+		busy = false;
 	      } else {
 		processed_size += offset + 1;
 		offset = 0;
@@ -202,4 +221,3 @@ main (int argc, char *argv[])
   
   return 0;
 }
-

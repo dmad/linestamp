@@ -43,15 +43,15 @@ struct arguments_option
 struct arguments_definition
 {
   void (*print_usage_header)(const char *command);
-  boolean_t (*process_option)(struct arguments_definition *def, 
-			      int opt, 
-			      const char *optarg, 
+  bool (*process_option)(struct arguments_definition *def, 
+			 int opt, 
+			 const char *optarg, 
+			 int argc, 
+			 char *argv[]);
+  bool (*process_non_options)(struct arguments_definition *def,
+			      int optind,
 			      int argc, 
 			      char *argv[]);
-  boolean_t (*process_non_options)(struct arguments_definition *def,
-				   int optind,
-				   int argc, 
-				   char *argv[]);
 
   struct arguments_option *options;
   void *user_data;
@@ -60,6 +60,9 @@ struct arguments_definition
 bool get_arguments (struct arguments_definition *def, 
 		    int argc, 
 		    char *argv[]);
+
+void print_usage (struct arguments_definition *def, 
+		  const char *command);
 
 __END_CDECLS
 

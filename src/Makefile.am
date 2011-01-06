@@ -1,3 +1,3 @@
 bin_PROGRAMS=linestamp
 
-linestamp_SOURCES=linestamp.c
+linestamp_SOURCES=linestamp.c arguments.c
